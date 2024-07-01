@@ -1,0 +1,40 @@
+ManifestFileVersion: 0
+CRC: 2604995342
+Hashes:
+  AssetFileHash:
+    serializedVersion: 2
+    Hash: 498f9d198370d9c0940dc01d4f5cf073
+  TypeTreeHash:
+    serializedVersion: 2
+    Hash: 89c8b163c999d931ad03f8ce1557c431
+  IncrementalBuildHash:
+    serializedVersion: 2
+    Hash: 498f9d198370d9c0940dc01d4f5cf073
+HashAppended: 0
+ClassTypes:
+- Class: 1
+  Script: {instanceID: 0}
+- Class: 4
+  Script: {instanceID: 0}
+- Class: 21
+  Script: {instanceID: 0}
+- Class: 23
+  Script: {instanceID: 0}
+- Class: 28
+  Script: {instanceID: 0}
+- Class: 33
+  Script: {instanceID: 0}
+- Class: 43
+  Script: {instanceID: 0}
+- Class: 48
+  Script: {instanceID: 0}
+- Class: 65
+  Script: {instanceID: 0}
+SerializeReferenceClassIdentifiers: []
+Assets:
+- Assets/Resources/Cube.prefab
+- Assets/Resources/New Material.mat
+- "Assets/Resources/\u80CC\u666F.jpg"
+- Assets/Resources/New Material 1.mat
+- Assets/Resources/background.jpg
+Dependencies: []

@@ -1,0 +1,37 @@
+ManifestFileVersion: 0
+CRC: 860623482
+Hashes:
+  AssetFileHash:
+    serializedVersion: 2
+    Hash: 103aee84d6f8ef8324f2440a04e789ac
+  TypeTreeHash:
+    serializedVersion: 2
+    Hash: 89c8b163c999d931ad03f8ce1557c431
+  IncrementalBuildHash:
+    serializedVersion: 2
+    Hash: 103aee84d6f8ef8324f2440a04e789ac
+HashAppended: 0
+ClassTypes:
+- Class: 1
+  Script: {instanceID: 0}
+- Class: 4
+  Script: {instanceID: 0}
+- Class: 21
+  Script: {instanceID: 0}
+- Class: 23
+  Script: {instanceID: 0}
+- Class: 28
+  Script: {instanceID: 0}
+- Class: 33
+  Script: {instanceID: 0}
+- Class: 43
+  Script: {instanceID: 0}
+- Class: 48
+  Script: {instanceID: 0}
+- Class: 65
+  Script: {instanceID: 0}
+SerializeReferenceClassIdentifiers: []
+Assets:
+- Assets/Cube 1.prefab
+- "Assets/\u72D0\u72F8.jpg"
+Dependencies: []

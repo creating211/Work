@@ -1,0 +1,14 @@
+ManifestFileVersion: 0
+CRC: 296477788
+AssetBundleManifest:
+  AssetBundleInfos:
+    Info_0:
+      Name: prefab
+      Dependencies: {}
+    Info_1:
+      Name: materials
+      Dependencies: {}
+    Info_2:
+      Name: texture2d
+      Dependencies:
+        Dependency_0: materials
