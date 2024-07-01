@@ -12,6 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 410b961b83341954d986aeab90c6008e, type: 3}
   m_Name: AssetManagerConfig
   m_EditorClassIdentifier: 
-  Name: "\u738B\u4E94"
-  Index: 3
-  Speed: 2
+  BuildingPattern: 1
+  _IncrementalBuildMode: 2
+  CompressionPattern: 1
+  AssetManagerVersion: 100
+  CurrentBuildVersion: 200
+  packageEditorInfos:
+  - PackageName: A
+    AssetList:
+    - {fileID: 6883140588438334261, guid: b4d26d372aa1b714e877040877e45ec3, type: 3}
+  InvalidExtensionNames:
+  - .meta
+  - .cs

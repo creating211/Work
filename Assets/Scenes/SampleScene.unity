@@ -374,18 +374,18 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 330585543}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 04b7d48a9ae47d24186d7681058ab2a5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  LoadPattern: 1
+  LoadPattern: 2
   LoadAssetBundleButton: {fileID: 371295450}
   LoadAssetButton: {fileID: 391027291}
   UnloadFalseButton: {fileID: 195951081}
   UnloadTrueButton: {fileID: 659596641}
   AssetBundleLoadPath: 
-  HTTPAddress: http://127.0.0.1:8080/
+  HTTPAddress: http://192.168.203.54:8080/
   HTTPAssetBundlePath: 
   DownloadPath: 
 --- !u!114 &330585549

@@ -1,0 +1,39 @@
+ManifestFileVersion: 0
+CRC: 2870043757
+Hashes:
+  AssetFileHash:
+    serializedVersion: 2
+    Hash: 46c9839fdfe4aaf0db4c3cc5d16b7a8e
+  TypeTreeHash:
+    serializedVersion: 2
+    Hash: 52dff5e4cd596c4836b75ed6d0a329fc
+  IncrementalBuildHash:
+    serializedVersion: 2
+    Hash: 46c9839fdfe4aaf0db4c3cc5d16b7a8e
+HashAppended: 0
+ClassTypes:
+- Class: 1
+  Script: {instanceID: 0}
+- Class: 4
+  Script: {instanceID: 0}
+- Class: 21
+  Script: {instanceID: 0}
+- Class: 23
+  Script: {instanceID: 0}
+- Class: 28
+  Script: {instanceID: 0}
+- Class: 33
+  Script: {instanceID: 0}
+- Class: 43
+  Script: {instanceID: 0}
+- Class: 48
+  Script: {instanceID: 0}
+- Class: 136
+  Script: {instanceID: 0}
+SerializeReferenceClassIdentifiers: []
+Assets:
+- Assets/Resources/Capsule.prefab
+- "Assets/Resources/QQ\u56FE\u724720230605095058.jpg"
+- Assets/Resources/New Material.mat
+- Packages/com.unity.render-pipelines.universal/Shaders/Lit.shader
+Dependencies: []

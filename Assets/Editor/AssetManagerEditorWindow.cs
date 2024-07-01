@@ -35,9 +35,8 @@ public class AssetManagerEditorWindow : EditorWindow
 
     private void OnEnable()
     {
-        AssetManagerEditor.AssetManagerConfig.GetCurrentDirectoryAllAssets();
+        
     }
-    public DefaultAsset editorWindowDirectory = null;
     /// <summary>
     /// 这个方法会在每个渲染帧调用，所以可以用来渲染UI界面
     /// 因为该方法运行在Editor类中，所以刷新频率取决于Editor的运行帧率
@@ -73,24 +72,61 @@ public class AssetManagerEditorWindow : EditorWindow
         AssetManagerEditor.AssetManagerConfig._IncrementalBuildMode = (IncrementalBuildMode)EditorGUILayout.EnumPopup("增量打包",
             AssetManagerEditor.AssetManagerConfig._IncrementalBuildMode);
         GUILayout.Space(20);
-        editorWindowDirectory = EditorGUILayout.ObjectField(editorWindowDirectory, typeof
-            (DefaultAsset), true) as DefaultAsset;
-        if (AssetManagerEditor.AssetManagerConfig.AssetBundleDirectory != editorWindowDirectory)
+
+        GUILayout.BeginVertical("frameBox");
+        GUILayout.Space(10);
+        for(int i=0;i< AssetManagerEditor.AssetManagerConfig.packageEditorInfos.Count;i++)
         {
-            if (editorWindowDirectory == null)
+            PackageEditorInfo packageInfo = AssetManagerEditor.AssetManagerConfig.packageEditorInfos[i];
+            GUILayout.BeginVertical("frameBox");
+
+            GUILayout.BeginHorizontal();
+            packageInfo.PackageName = EditorGUILayout.TextField("PackageName", packageInfo.PackageName);
+
+            if (GUILayout.Button("Remove"))
             {
-                AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Clear();
+                AssetManagerEditor.RemovePackageInfoEditor(packageInfo);
             }
-            AssetManagerEditor.AssetManagerConfig.AssetBundleDirectory = editorWindowDirectory;
-            AssetManagerEditor.AssetManagerConfig.GetCurrentDirectoryAllAssets();
+            GUILayout.EndHorizontal();
+            GUILayout.Space(10);
+            for (int j = 0; j < packageInfo.AssetList.Count; j++)
+            {
+                GUILayout.BeginHorizontal();
+                packageInfo.AssetList[j] = EditorGUILayout.ObjectField(packageInfo.AssetList[j], typeof(GameObject)) as GameObject;
+
+                if (GUILayout.Button("Remove"))
+                {
+                    AssetManagerEditor.RemoveAsset(packageInfo, packageInfo.AssetList[j]);
+                }
+                GUILayout.EndHorizontal();
+                GUILayout.Space(5);
+            }
+            GUILayout.Space(5);
+            if (GUILayout.Button("新增Asset"))
+            {
+                AssetManagerEditor.AddAsset(packageInfo);
+            }
+            GUILayout.EndVertical();
+            GUILayout.Space(20);
         }
-        if (AssetManagerEditor.AssetManagerConfig.CurrentAllAssets != null && AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Count > 0)
+        GUILayout.Space(10);
+        if (GUILayout.Button("新增Package"))
         {
-            for (int i = 0; i < AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Count; i++)
-            {
-                AssetManagerEditor.AssetManagerConfig.CurrentSelectedAssets[i] = EditorGUILayout.ToggleLeft(AssetManagerEditor.AssetManagerConfig.CurrentAllAssets[i], AssetManagerEditor.AssetManagerConfig.CurrentSelectedAssets[i]);
-            }
+            AssetManagerEditor.AddPackageInfoEditor();
         }
+        GUILayout.EndVertical();
+        //for (int i=0; i < AssetManagerEditor.AssetManagerConfig.packageInfoEditors.Count;i++)
+        //{
+        //    PackageInfoEditor packageInfo = AssetManagerEditor.AssetManagerConfig.packageInfoEditors[i];
+        //}
+
+        //if (AssetManagerEditor.AssetManagerConfig.CurrentAllAssets != null && AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Count > 0)
+        //{
+        //    for (int i = 0; i < AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Count; i++)
+        //    {
+        //        AssetManagerEditor.AssetManagerConfig.CurrentSelectedAssets[i] = EditorGUILayout.ToggleLeft(AssetManagerEditor.AssetManagerConfig.CurrentAllAssets[i], AssetManagerEditor.AssetManagerConfig.CurrentSelectedAssets[i]);
+        //    }
+        //}
 
         GUILayout.Space(20);
         if (GUILayout.Button("打包AssetBundle"))

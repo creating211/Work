@@ -6,35 +6,25 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System;
 using Newtonsoft.Json;
 
-public enum AssetBundleCompressionPattern
-{
-    LZMA,
-    LZ4,
-    None
-}
-
 /// <summary>
-/// 任何BuildOption处于非forceRebuild选项下都默认为增量打包
+/// 这个类只用于收集Editor环境下存在的Package信息而非打包后的Package信息
 /// </summary>
-public enum IncrementalBuildMode
-{
-    None,
-    IncrementalBuild,
-    ForceRebuild
-}
 
-public class AssetBundleVersionDifference
+[Serializable]
+public class PackageEditorInfo
 {
     /// <summary>
-    /// 新增资源包
+    /// 当前包的名称，可以由开发者在编辑器窗口自由定义
     /// </summary>
-    public List<string> AdditionAssetBundles = new List<string>();
+    public string PackageName;
+
     /// <summary>
-    /// 减少资源包
+    /// 归属于当前包中的资源列表，可以由开发者在编辑器窗口中自由定义
     /// </summary>
-    public List<string> ReducedAssetBundles = new List<string>();
+    public List<UnityEngine.Object> AssetList = new List<UnityEngine.Object>();
 }
 
 /// <summary>
@@ -57,6 +47,17 @@ public class AssetBundleNode
     /// 当前Node的Index列表，会沿着自身的OutEdge进行传递
     /// </summary>
     public List<int> SourceIndeices = new List<int>();
+
+
+    /// <summary>
+    /// 只有sourceAsset才具有包名
+    /// </summary>
+    public string PackageName;
+
+    /// <summary>
+    /// DerivedAsset的只有PackageNames代表被引用关系
+    /// </summary>
+    public List<string> PackageNames=new List<string>();
     /// <summary>
     /// 当前Node所引用的Nodes
     /// </summary>
@@ -79,9 +80,15 @@ public class AssetManagerEditor
 
     public static AssetManagerConfigScriptableObject AssetManagerConfig;
 
+    /// <summary>
+    /// 本次打包所有AssetBundle的输出路径，应含主包包名，以适配增量打包
+    /// </summary>
     public static string AssetBundleOutputPath;
 
-
+    /// <summary>
+    /// 代表了整个打包文件输出路径
+    /// </summary>
+    public static string BuildOutputPath;
 
     /// <summary>
     /// 通过MenuItem特性，声明Editor顶部菜单栏选项
@@ -110,17 +117,41 @@ public class AssetManagerEditor
 
         Debug.Log("AB包打包已完成");
     }
+
+    public static void AddPackageInfoEditor()
+    {
+        AssetManagerConfig.packageEditorInfos.Add(new PackageEditorInfo());
+    }
+    public static void RemovePackageInfoEditor(PackageEditorInfo info)
+    {
+        if(AssetManagerConfig.packageEditorInfos.Contains(info))
+        {
+            AssetManagerConfig.packageEditorInfos.Remove(info);
+        }
+    }
+    public static void AddAsset(PackageEditorInfo info)
+    {
+        info.AssetList.Add(null);
+    }
+
+    public static void RemoveAsset(PackageEditorInfo info,UnityEngine.Object asset)
+    {
+        if(info.AssetList.Contains(asset))
+        {
+            info.AssetList.Remove(asset);
+        }
+    }
     public static void LoadConfig(AssetManagerEditorWindow window)
     {
         if (AssetManagerConfig == null)
         {
             AssetManagerConfig = AssetDatabase.LoadAssetAtPath<AssetManagerConfigScriptableObject>("Assets/Editor/AssetManagerConfig.asset");
             window.VersionString = AssetManagerConfig.AssetManagerVersion.ToString();
-            for (int i = window.VersionString.Length; i >= 1; i--)
+            for (int i = window.VersionString.Length-1; i >= 1; i--)
             {
                 window.VersionString = window.VersionString.Insert(i, ".");
             }
-            window.editorWindowDirectory = AssetManagerConfig.AssetBundleDirectory;
+            
         }
     }
     public static void LoadWindowConfig(AssetManagerEditorWindow window)
@@ -206,7 +237,7 @@ public class AssetManagerEditor
         return stringBuilder.ToString();
     }
 
-    static string[] BuildAssetBundleHashTable(AssetBundleBuild[] assetBundleBuilds)
+    static string[] BuildAssetBundleHashTable(AssetBundleBuild[] assetBundleBuilds,string versionPath)
     {
         //表的长度和AssetBundle的数量保持一致
         string[] assetBundleHashs = new string[assetBundleBuilds.Length];
@@ -221,55 +252,101 @@ public class AssetManagerEditor
 
         string hashString = JsonConvert.SerializeObject(assetBundleHashs);
         string hashFilePath = Path.Combine(AssetBundleOutputPath, "AssetBundleHashs");
-
+        string hashFileVersionPath = Path.Combine(versionPath, "AssetBundleHashs");
         File.WriteAllText(hashFilePath, hashString);
-
+        File.WriteAllText(hashFileVersionPath, hashString);
         return assetBundleHashs;
-    }
-
-    static AssetBundleVersionDifference ContrastAssetBundleVersion(string[] oldVersionAssets, string[] newVersionAssets)
-    {
-        AssetBundleVersionDifference difference = new AssetBundleVersionDifference();
-        foreach (var assetName in oldVersionAssets)
-        {
-            if (newVersionAssets.Contains(assetName))
-            {
-                difference.ReducedAssetBundles.Add(assetName);
-            }
-        }
-
-        foreach (var assetName in newVersionAssets)
-        {
-            if (!oldVersionAssets.Contains(assetName))
-            {
-                difference.AdditionAssetBundles.Add(assetName);
-            }
-        }
-
-        return difference;
     }
 
     public static void BuildAssetBundleFromDirectedGraph()
     {
         CheckBuildOutputPath();
-        List<string> selectedAssets = GetAllSelectedAssets();
         List<AssetBundleNode> allNodes = new List<AssetBundleNode>();
-        //当前所选中的资源就是SourceAsset，所以首先调加SourceAsset的Node
-        for (int i = 0; i < selectedAssets.Count; i++)
+        int sourceIndex=0;
+        Dictionary<string, PackageBuildInfo> packageInfoDic = new Dictionary<string, PackageBuildInfo>();
+
+        #region 有向图构建
+        for (int i=0;i<AssetManagerConfig.packageEditorInfos.Count;i++)
         {
-            AssetBundleNode currenNode = new AssetBundleNode();
-            currenNode.AssetName = selectedAssets[i];
-            currenNode.SourceIndex = i;
-            currenNode.SourceIndeices = new List<int>() { i };
-            currenNode.InEdge = new AssetBundleEdge();
-            allNodes.Add(currenNode);
+            PackageBuildInfo packageBuildInfo = new PackageBuildInfo();
+            packageBuildInfo.PackageName = AssetManagerConfig.packageEditorInfos[i].PackageName;
+            packageBuildInfo.IsSourcePackage = true;
 
-            GetNodeFromDependencies(currenNode, allNodes);
+            packageInfoDic.Add(packageBuildInfo.PackageName, packageBuildInfo);
+
+            //当前所选中的资源就是SourceAsset，所以首先调加SourceAsset的Node
+            foreach (UnityEngine.Object asset in AssetManagerConfig.packageEditorInfos[i].AssetList)
+            {
+                AssetBundleNode currenNode = null;
+                //以资源的具体路径作为资源名称
+                string assetNamePath= AssetDatabase.GetAssetPath(asset);
+
+                foreach(AssetBundleNode node in allNodes)
+                {
+                    if(node.AssetName==assetNamePath)
+                    {
+                        currenNode = node;
+                        currenNode.PackageName= packageBuildInfo.PackageName;
+                        break;
+                    }
+                }
+
+                if(currenNode==null)
+                {
+                    currenNode = new AssetBundleNode();
+                    currenNode.AssetName = assetNamePath;
+
+                    currenNode.SourceIndex = sourceIndex;
+                    currenNode.SourceIndeices = new List<int>() { sourceIndex };
+
+                    currenNode.PackageName = packageBuildInfo.PackageName;
+                    currenNode.PackageNames.Add(currenNode.PackageName);
+
+                    currenNode.InEdge = new AssetBundleEdge();
+                    allNodes.Add(currenNode);
+                }
+
+                GetNodeFromDependencies(currenNode, allNodes);
+
+                sourceIndex++;
+            }
         }
+        #endregion
 
+
+        #region 有向图区分打包集合
         Dictionary<List<int>, List<AssetBundleNode>> assetBundleNodeDic = new Dictionary<List<int>, List<AssetBundleNode>>();
         foreach (AssetBundleNode node in allNodes)
         {
+            StringBuilder packageNameString = new StringBuilder();
+
+            //包名不为空或无，则代表是一个SourceAsset，其包名已经在编辑器窗口中添加了
+            if(string.IsNullOrEmpty(node.PackageName))
+            {
+                for(int i=0;i<node.PackageNames.Count;i++)
+                {
+                    packageNameString.Append(node.PackageNames[i]);
+                    if(i < node.PackageNames.Count - 1)
+                    {
+                        packageNameString.Append("_");
+                    }
+                }
+                string packageName = packageNameString.ToString();
+                node.PackageName = packageName;
+                //此时只添加了对应的包名以及包名
+                //而没有具体添加包名中对应的Asset
+                //因为Asset添加是需要具有AssetBundleName，所以只能在AssetBundle的地方添加Asset
+                if (!packageInfoDic.ContainsKey(packageName))
+                {
+                    PackageBuildInfo packageBuildInfo = new PackageBuildInfo();
+                    packageBuildInfo.PackageName = packageName;
+                    packageBuildInfo.IsSourcePackage = false;
+                    packageInfoDic.Add(packageBuildInfo.PackageName, packageBuildInfo);
+                   
+                }
+
+            }
+
             bool isEquals = false;
             List<int> keyList = new List<int>();
             foreach (List<int> key in assetBundleNodeDic.Keys)
@@ -289,6 +366,7 @@ public class AssetManagerEditor
             }
             assetBundleNodeDic[keyList].Add(node);
         }
+        #endregion
         AssetBundleBuild[] assetBundleBuilds = new AssetBundleBuild[assetBundleNodeDic.Count];
         int buildIndex = 0;
 
@@ -301,62 +379,109 @@ public class AssetManagerEditor
             foreach (AssetBundleNode node in assetBundleNodeDic[key])
             {
                 assetNames.Add(node.AssetName);
+                //如果是一个SourceAsset,则它的PacageName只会具有自己
+                //
+                foreach(string packageName in node.PackageNames)
+                {
+                    if(packageInfoDic.ContainsKey(packageName))
+                    {
+                        if (!packageInfoDic[packageName].PackageDependecies.Contains(node.PackageName) && string.Equals(node.PackageName , packageInfoDic
+                            [packageName].PackageName))
+                        {
+                            packageInfoDic[packageName].PackageDependecies.Add(node.PackageName);
+                        }
+                    }
+                }
             }
             string[] assetNamesArray = assetNames.ToArray();
+
             assetBundleBuilds[buildIndex].assetBundleName = ComputeAssetSetSignature(assetNamesArray);
+
             assetBundleBuilds[buildIndex].assetNames = assetNamesArray;
+
+            foreach (AssetBundleNode node in assetBundleNodeDic[key])
+            {
+                //因为区分了DerivedPackage，所以可以确保每一个Node都具有一个包名
+                AssetBuildInfo assetBuildInfo = new AssetBuildInfo();
+
+                assetBuildInfo.AssetName = node.AssetName;
+                assetBuildInfo.AssetBundleName = assetBundleBuilds[buildIndex].assetBundleName;
+
+                packageInfoDic[node.PackageName].AssetIfos.Add(assetBuildInfo);
+
+            }
             buildIndex++;
         }
+
         BuildPipeline.BuildAssetBundles(AssetBundleOutputPath, assetBundleBuilds, CheckIncrementalBuildMode(),
             BuildTarget.StandaloneWindows);
+        string buildVersionFilePath = Path.Combine(BuildOutputPath, "BuildVersion.version");
 
-        string[] currentVersionAssetHashs = BuildAssetBundleHashTable(assetBundleBuilds);
+        File.WriteAllText(buildVersionFilePath, AssetManagerConfig.CurrentBuildVersion.ToString());
+        //创建版本路径
+        string versionPath = Path.Combine(BuildOutputPath, AssetManagerConfig.CurrentBuildVersion.ToString());
 
-        CopyAssetBundleToVersionFolder();
-        GetVersionDifference(currentVersionAssetHashs);
+        if(!Directory.Exists(versionPath))
+        {
+            Directory.CreateDirectory(versionPath);
+        }
+
+        BuildAssetBundleHashTable(assetBundleBuilds,versionPath);
+
+        CopyAssetBundleToVersionFolder(versionPath);
+
+        BuildPackageTable(packageInfoDic,versionPath);
         AssetManagerConfig.CurrentBuildVersion++;
         //刷新Project界面，如果不是打包到工程内则不需要执行
         AssetDatabase.Refresh();
 
-        /*
-        foreach(AssetBundleNode node in allNodes)
-        {
-            if(node.SourceIndex>=0)
-            {
-                Debug.Log($"{ node.AssetName}是一个SourceAsset");
-            }
-            else
-            {
-                Debug.Log($"{ node.AssetName}是一个DrivedAsset,被{node.SourceIndeices.Count}个资源所引用");
-            }
-        }*/
-
     }
 
-    static void CopyAssetBundleToVersionFolder()
+    public static string PackageTableName = "AllPackages";
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="packages">Package字典，key为包名</param>
+    /// <param name="outputPath"></param>
+    static void BuildPackageTable(Dictionary<string,PackageBuildInfo> packages,string versionPath)
     {
-        string versionString = AssetManagerConfig.CurrentBuildVersion.ToString();
-        for (int i = versionString.Length - 1; i >= 1; i--)
-        {
-            versionString = versionString.Insert(i, ".");
-        }
+        string packagesPath = Path.Combine(AssetBundleOutputPath, PackageTableName);
+        string packageVertionPath = Path.Combine(versionPath, PackageTableName);
 
-        string assetBundleVersionPath = Path.Combine(Application.streamingAssetsPath, versionString, HelloWorld.MainAssetBundleName);
-        if (!Directory.Exists(assetBundleVersionPath))
-        {
-            Directory.CreateDirectory(assetBundleVersionPath);
-        }
+        string packageJSON = JsonConvert.SerializeObject(packages.Keys);
 
+        File.WriteAllText(packagesPath, packageJSON);
+        File.WriteAllText(packageVertionPath, packageJSON);
+
+        foreach (PackageBuildInfo package in packages.Values)
+        {
+            packagesPath = Path.Combine(AssetBundleOutputPath, package.PackageName);
+            packageJSON = JsonConvert.SerializeObject(package);
+            packageVertionPath = Path.Combine(versionPath, package.PackageName);
+
+            File.WriteAllText(packagesPath, packageJSON);
+            File.WriteAllText(packageVertionPath, packageJSON);
+        }
+    }
+    static void CopyAssetBundleToVersionFolder(string versionPath)
+    {
+        //从AssetBundle输出路径下读取包列表
         string[] assetNames = ReadAssetBundleHashTable(AssetBundleOutputPath);
 
-        //复制哈希表
-        string hashTableOriginPath = Path.Combine(AssetBundleOutputPath, "AssetBundleHashs");
-        string hashTableVersionPath = Path.Combine(assetBundleVersionPath, "AssetBundleHashs");
-        File.Copy(hashTableOriginPath, hashTableVersionPath);
+        ////复制哈希表
+        //string hashTableOriginPath = Path.Combine(outputPath, "AssetBundleHashs");
+        //string hashTableVersionPath = Path.Combine(assetBundleVersionPath, "AssetBundleHashs");
+        //File.Copy(hashTableOriginPath, hashTableVersionPath,true);
         //复制主包
-        string mainBundleOriginPath = Path.Combine(AssetBundleOutputPath, HelloWorld.MainAssetBundleName);
-        string mainBundleVersionPath = Path.Combine(assetBundleVersionPath, HelloWorld.MainAssetBundleName);
-        File.Copy(mainBundleOriginPath, mainBundleVersionPath);
+        string mainBundleOriginPath = Path.Combine(AssetBundleOutputPath, OutputBundleName);
+        string mainBundleVersionPath = Path.Combine(versionPath, OutputBundleName);
+        File.Copy(mainBundleOriginPath, mainBundleVersionPath,true);
+
+        ////复制PackageInfos
+        //string packageInfoPath = Path.Combine(outputPath, PackageTableName);
+        //string packageInfoVersionPath = Path.Combine(assetBundleVersionPath, PackageTableName);
+        //File.Copy(packageInfoPath, packageInfoVersionPath, true);
+
 
         foreach (var assetName in assetNames)
         {
@@ -364,7 +489,7 @@ public class AssetManagerEditor
 
             string assetOriginPath = Path.Combine(AssetBundleOutputPath, assetHashName);
             //fileInfo.Name是包含了扩展名的文件名
-            string assetVersionPath = Path.Combine(assetBundleVersionPath, assetHashName);
+            string assetVersionPath = Path.Combine(versionPath, assetHashName);
             //fileInfo.FullName是包含了目录和文件名的文件完整路径
             File.Copy(assetOriginPath, assetVersionPath, true);
         }
@@ -398,36 +523,36 @@ public class AssetManagerEditor
         return VersionAssetHashs;
     }
 
-    static void GetVersionDifference(string[] currentAssetHashs)
-    {
-        if (AssetManagerConfig.CurrentBuildVersion >= 101)
-        {
-            int lastVersion = AssetManagerConfig.CurrentBuildVersion - 1;
-            string versionString = AssetManagerConfig.CurrentBuildVersion.ToString();
-            for (int i = versionString.Length - 1; i >= 1; i--)
-            {
-                versionString = versionString.Insert(i, ".");
-            }
-            var lastOutputPath = Path.Combine(Application.streamingAssetsPath, versionString, HelloWorld.MainAssetBundleName);
+    //static void GetVersionDifference(string[] currentAssetHashs)
+    //{
+    //    if (AssetManagerConfig.CurrentBuildVersion >= 101)
+    //    {
+    //        int lastVersion = AssetManagerConfig.CurrentBuildVersion - 1;
+    //        string versionString = AssetManagerConfig.CurrentBuildVersion.ToString();
+    //        for (int i = versionString.Length - 1; i >= 1; i--)
+    //        {
+    //            versionString = versionString.Insert(i, ".");
+    //        }
+    //        var lastOutputPath = Path.Combine(Application.streamingAssetsPath, versionString, "Local");
 
-            string[] lastVersionAssetHashs = ReadAssetBundleHashTable(lastOutputPath);
+    //        string[] lastVersionAssetHashs = ReadAssetBundleHashTable(lastOutputPath);
 
-            AssetBundleVersionDifference difference = ContrastAssetBundleVersion(lastVersionAssetHashs, currentAssetHashs);
+    //        AssetBundleVersionDifference difference = ContrastAssetBundleVersion(lastVersionAssetHashs, currentAssetHashs);
 
 
-            foreach (var assetName in difference.AdditionAssetBundles)
-            {
-                Debug.Log($"当前版本新增资源{assetName}");
+    //        foreach (var assetName in difference.AdditionAssetBundles)
+    //        {
+    //            Debug.Log($"当前版本新增资源{assetName}");
 
-            }
+    //        }
 
-            foreach (var assetName in difference.AdditionAssetBundles)
-            {
-                Debug.Log($"当前版本减少资源{assetName}");
-            }
+    //        foreach (var assetName in difference.AdditionAssetBundles)
+    //        {
+    //            Debug.Log($"当前版本减少资源{assetName}");
+    //        }
 
-        }
-    }
+    //    }
+    //}
 
     /// <summary>
     /// 
@@ -450,7 +575,7 @@ public class AssetManagerEditor
         }
         foreach (string assetName in assetNames)
         {
-            if (!AssetManagerConfig.isValidExtensionName(assetName))
+            if (!isValidExtensionName(assetName))
             {
                 continue;
             }
@@ -475,51 +600,60 @@ public class AssetManagerEditor
             currentNode.InEdge.nodes.Add(lastNode);
             lastNode.OutEdge.nodes.Add(currentNode);
 
+            //包名以及包名对应的资源引用同样也通过有向图进行传递
+            if (!string.IsNullOrEmpty(lastNode.PackageName))
+            {
+                if (!currentNode.PackageNames.Contains(lastNode.PackageName))
+                {
+                    currentNode.PackageNames.Add(lastNode.PackageName);
+                }
+
+            }
+            //否则是DerivedAsset,直接获取last Node的SourceIndices即可
+            else
+            {
+                foreach (string packageNames in lastNode.PackageNames)
+                {
+                    if (!currentNode.PackageNames.Contains(packageNames))
+                    {
+                        currentNode.PackageNames.Add(packageNames);
+                    }
+                }
+            }
+
+
             //如果lastNode是SourceAsset,则直接为当前Node添加last Node的Index
             //因为List是一个引用类型，所以SourceAsset的Sourceindeies哪怕内容和derived一样，也视为一个新的List
             if (lastNode.SourceIndex >= 0)
             {
-
-                currentNode.SourceIndeices.Add(lastNode.SourceIndex);
+                if(!currentNode.SourceIndeices.Contains(lastNode.SourceIndex))
+                {
+                    currentNode.SourceIndeices.Add(lastNode.SourceIndex);
+                }
+                
             }
             //否则是DerivedAsset,直接获取last Node的SourceIndices即可
             else
             {
                 foreach (int index in lastNode.SourceIndeices)
                 {
-                    if (currentNode.SourceIndeices.Contains(index))
+                    if (!currentNode.SourceIndeices.Contains(index))
                     {
                         currentNode.SourceIndeices.Add(index);
                     }
                 }
-                currentNode.SourceIndeices = lastNode.SourceIndeices;
+                //currentNode.SourceIndeices = lastNode.SourceIndeices;
             }
+            GetNodeFromDependencies(currentNode, allNodes);
 
         }
     }
-    public static List<string> GetAllSelectedAssets()
-    {
-        List<string> selectedAssets = new List<string>();
 
-        if (AssetManagerConfig.CurrentSelectedAssets == null || AssetManagerConfig.CurrentSelectedAssets.Length == 0)
-        {
-            return null;
-        }
-        //将值为true的对应索引文件，添加到要打包的资源列表中
-        for (int i = 0; i < AssetManagerConfig.CurrentSelectedAssets.Length; i++)
-        {
-            if (AssetManagerConfig.CurrentSelectedAssets[i])
-            {
-                selectedAssets.Add(AssetManagerConfig.CurrentAllAssets[i]);
-            }
-        }
-        return selectedAssets;
-    }
 
     public static List<string> GetSeletedAssetsDependencies()
     {
         List<string> depensencies = new List<string>();
-        List<string> selecedAssets = GetAllSelectedAssets();
+        List<string> selecedAssets = new List<string>();
         for (int i = 0; i < selecedAssets.Count; i++)
         {
             //所有通过该方法获取到的数组，可以视为集合L中的一个元素
@@ -531,8 +665,6 @@ public class AssetManagerEditor
         }
         return depensencies;
     }
-
-
 
     static BuildAssetBundleOptions CheckCompressionPattern()
     {
@@ -567,30 +699,36 @@ public class AssetManagerEditor
 
     }
 
+    public static string OutputBundleName= "LocalAssets";
     static void CheckBuildOutputPath()
     {
 
         switch (AssetManagerConfig.BuildingPattern)
         {
-            case AssetBundlePattern.EditorSimulation:
+            case AssetBundlePattern.EditorSimulation: 
                 break;
             case AssetBundlePattern.Local:
-                AssetBundleOutputPath = Path.Combine(Application.streamingAssetsPath, "Local", HelloWorld.MainAssetBundleName);
+                BuildOutputPath = Path.Combine(Application.streamingAssetsPath, "BuildOutput");
                 break;
             case AssetBundlePattern.Remote:
-                AssetBundleOutputPath = Path.Combine(Application.persistentDataPath, "Remote", HelloWorld.MainAssetBundleName);
+                BuildOutputPath = Path.Combine(Application.persistentDataPath, "BuildOutput");
                 break;
         }
-        if (string.IsNullOrEmpty(AssetBundleOutputPath))
+        
+        if (!Directory.Exists(BuildOutputPath))
         {
-            Debug.LogError("输出路径为空");
-            return;
+            //若路径不存在就创建路径
+            Directory.CreateDirectory(BuildOutputPath);
         }
-        else if (!Directory.Exists(AssetBundleOutputPath))
+
+        AssetBundleOutputPath = Path.Combine(BuildOutputPath,OutputBundleName);
+
+        if (!Directory.Exists(AssetBundleOutputPath))
         {
             //若路径不存在就创建路径
             Directory.CreateDirectory(AssetBundleOutputPath);
         }
+
     }
 
     /// <summary>
@@ -630,9 +768,8 @@ public class AssetManagerEditor
     public static void BuiAssetBundleFromSets()
     {
         CheckBuildOutputPath();
-        
         //被选中将要打包的资源列表,即列表A
-        List<string> selectedAssets = GetAllSelectedAssets();
+        List<string> selectedAssets = new List<string>();
 
         //集合列表L
         List<List<GUID>> selectedAssetsDependencies = new List<List<GUID>>();
@@ -701,27 +838,22 @@ public class AssetManagerEditor
     public static void BuildAssetBundleFromEditorWindow()
     {
         CheckBuildOutputPath();
-        if (AssetManagerConfig.AssetBundleDirectory == null)
-        {
-            Debug.LogError("打包目录不存在");
-            return;
-        }
-
+       
         //被选中将要打包的资源列表
-        List<string> selectedAssets = GetAllSelectedAssets();
+        List<string> selectedAssets = new List<string>();
 
         //选中多少个资源则打包多少个AB包
         AssetBundleBuild[] assetBundleBuilds = new AssetBundleBuild[selectedAssets.Count];
 
-        string directoryPath = AssetDatabase.GetAssetPath(AssetManagerConfig.AssetBundleDirectory);
+        //string directoryPath = AssetDatabase.GetAssetPath(AssetManagerConfig.AssetBundleDirectory);
 
         for (int i = 0; i < assetBundleBuilds.Length; i++)
         {
-            string bundleName = selectedAssets[i].Replace($@"{directoryPath}\", string.Empty);
+            //string bundleName = selectedAssets[i].Replace($@"{directoryPath}\", string.Empty);
             //Unity作导入.prefab文作时，会默认使用预制体导入器导入，而assetBundle不是预制体，所以会导致报错
-            bundleName = bundleName.Replace(".prefab", string.Empty);
+            ///bundleName = bundleName.Replace(".prefab", string.Empty);
 
-            assetBundleBuilds[i].assetBundleName = bundleName;
+            //assetBundleBuilds[i].assetBundleName = bundleName;
 
             assetBundleBuilds[i].assetNames = new string[] { selectedAssets[i] };
         }
@@ -742,20 +874,15 @@ public class AssetManagerEditor
     public static void BuildAssetBundleFromDirectory()
     {
         CheckBuildOutputPath();
-        if (AssetManagerConfig.AssetBundleDirectory == null)
-        {
-            Debug.LogError("打包目录不存在");
-            return;
-        }
-
+       
 
         AssetBundleBuild[] assetBundleBuild = new AssetBundleBuild[1];
 
         //将要打包的具体包名，而不是主包名
-        assetBundleBuild[0].assetBundleName = HelloWorld.ObjectAssetBundleName;
+        assetBundleBuild[0].assetBundleName = "Local";
 
         //这里虽然名为Name，实际上需要资源在工程下的路径
-        assetBundleBuild[0].assetNames = AssetManagerConfig.CurrentAllAssets.ToArray();
+       // assetBundleBuild[0].assetNames = AssetManagerConfig.CurrentAllAssets.ToArray();
 
     }
 
@@ -764,6 +891,51 @@ public class AssetManagerEditor
     /// </summary>
     /// <param name="fileName"></param>
     /// <returns></returns>
+    public static bool isValidExtensionName(string fileName)
+    {
+        bool isValid = true;
+        foreach (string invalidName in AssetManagerConfig.InvalidExtensionNames)
+        {
+            if (fileName.Contains(invalidName))
+            {
+                isValid = false;
+                return isValid;
+            }
+        }
+        return isValid;
+    }
 
+    public static List<string> FindAllAssetFromDirectory(string directoryPath)
+    {
+        List<string> assetPaths = new List<string>();
+        //如果传入的路径为空或者不存在的话
+        if (string.IsNullOrEmpty(directoryPath) || !Directory.Exists(directoryPath))
+        {
+            Debug.Log("文件夹路径不存在");
+            return null;
+        }
+        //System.IO命名空间下的类，也就是Windows自带的对文件夹进行操作的类
+        //System.IO下的类，只能在PC平台或者Windows上读写文件，在移动端不适用
+        DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
+
+        //获取该目录下所有文件信息
+        //Directory文件夹不属于File类型，所以这里不会获取子文件夹
+        FileInfo[] fileInfos = directoryInfo.GetFiles();
+
+        //所有非元数据文件(后缀不是meta的文件)路径都添加到列表中用于打包这些文件
+        foreach (FileInfo info in fileInfos)
+        {
+            //.meta文件代表描述文件
+            if (!isValidExtensionName(info.Extension))
+            {
+                continue;
+            }
+            //AssetBundle打包只需要文件名
+            string assetPath = Path.Combine(directoryPath, info.Name);
+            assetPaths.Add(assetPath);
+            Debug.Log(assetPath);
+        }
+        return assetPaths;
+    }
 
 }
