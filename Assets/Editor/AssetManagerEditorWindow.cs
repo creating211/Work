@@ -3,84 +3,112 @@ using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
+//窗口渲染
 public class AssetManagerEditorWindow : EditorWindow
 {
 
-    public static GUIStyle TitleTextStyle;
 
-    public static GUIStyle VersionTextStyle;
+    public string VersionString;
 
-    public static Texture2D LogoTexture;
-
-    public static GUIStyle LogoTextureStyle;
+    public AssetManagerEditorWindowConfigSO WindowConfig;
 
     public void Awake()
     {
-        TitleTextStyle = new GUIStyle();
-        TitleTextStyle.fontSize = 26;
-        TitleTextStyle.normal.textColor = Color.red;
-        TitleTextStyle.alignment = TextAnchor.MiddleCenter;
-
-        VersionTextStyle = new GUIStyle();
-        VersionTextStyle.fontSize = 20;
-        VersionTextStyle.normal.textColor = Color.cyan;
-        VersionTextStyle.alignment = TextAnchor.MiddleRight;
-
-        //设置图片
-        LogoTexture = AssetDatabase.LoadAssetAtPath<Texture2D>("Assets/background.jpg");
-        LogoTextureStyle = new GUIStyle();
-        LogoTextureStyle.alignment = TextAnchor.MiddleCenter;
+        AssetManagerEditor.LoadWindowConfig(this);
+        AssetManagerEditor.LoadConfig(this);
     }
+
     /// <summary>
-    /// 这个方法会在每个渲染帧调用，所以可以用来渲染Ui界面
-    /// 因为该方法运行在Editor中，所以刷新频率取决于Editor的运行频率
+    /// 每当工程发生修改时会调用该方法
+    /// </summary>
+    private void OnValidate()
+    {
+        AssetManagerEditor.LoadWindowConfig(this);
+        AssetManagerEditor.LoadConfig(this);
+    }
+
+    private void OnInspectorUpdate()
+    {
+        AssetManagerEditor.LoadWindowConfig(this);
+        AssetManagerEditor.LoadConfig(this);
+    }
+
+    private void OnEnable()
+    {
+        AssetManagerEditor.AssetManagerConfig.GetCurrentDirectoryAllAssets();
+    }
+    public DefaultAsset editorWindowDirectory = null;
+    /// <summary>
+    /// 这个方法会在每个渲染帧调用，所以可以用来渲染UI界面
+    /// 因为该方法运行在Editor类中，所以刷新频率取决于Editor的运行帧率
     /// </summary>
     private void OnGUI()
     {
-        //默认情况下是垂直排版
+        //默认情况下垂直排版
         //GUI按照代码顺序进行渲染
         GUILayout.Space(20);
-        if (LogoTexture != null)
+
+        if (WindowConfig.LogoTexture != null)
         {
-            GUILayout.Label(LogoTexture, LogoTextureStyle);
+            GUILayout.Label(WindowConfig.LogoTexture, WindowConfig.LogoTextureStyle);
         }
 
         #region Title文字内容
         GUILayout.Space(20);
-        GUILayout.Label(nameof(AssetManagerEditor), TitleTextStyle);
-        /*
-        TitleTextStyle = new GUIStyle();
-        TitleTextStyle.fontSize = 26;
-        TitleTextStyle.normal.textColor = Color.red;
-        TitleTextStyle.alignment = TextAnchor.MiddleCenter;
-        GUILayout.Label(nameof(AssetManagerEditor), TitleTextStyle);
-        */
+        GUILayout.Label(nameof(AssetManagerEditor), WindowConfig.TitleTextStyle);
 
         #endregion
         GUILayout.Space(20);
-        GUILayout.Label(AssetManagerEditor.AssetManagerVersion, VersionTextStyle);
+        GUILayout.Label(VersionString, WindowConfig.VersionTextStyle);
 
         GUILayout.Space(20);
-        AssetManagerEditor.BuilidingPattern = (AssetBundlePattern)EditorGUILayout.EnumPopup("打包模式", AssetManagerEditor.BuilidingPattern);
+        AssetManagerEditor.AssetManagerConfig.BuildingPattern = (AssetBundlePattern)EditorGUILayout.EnumPopup("打包模式",
+            AssetManagerEditor.AssetManagerConfig.BuildingPattern);
 
         GUILayout.Space(20);
-        AssetManagerEditor.CompressionPattern = (AssetBundleCompresionPattern)EditorGUILayout.EnumPopup("压缩格式", AssetManagerEditor.CompressionPattern);
+        AssetManagerEditor.AssetManagerConfig.CompressionPattern = (AssetBundleCompressionPattern)EditorGUILayout.EnumPopup("压缩格式",
+            AssetManagerEditor.AssetManagerConfig.CompressionPattern);
 
         GUILayout.Space(20);
-        AssetManagerEditor.AssetBundleDirectory = EditorGUILayout.ObjectField(AssetManagerEditor.AssetBundleDirectory, typeof(DefaultAsset), true) as DefaultAsset;
+        AssetManagerEditor.AssetManagerConfig._IncrementalBuildMode = (IncrementalBuildMode)EditorGUILayout.EnumPopup("增量打包",
+            AssetManagerEditor.AssetManagerConfig._IncrementalBuildMode);
+        GUILayout.Space(20);
+        editorWindowDirectory = EditorGUILayout.ObjectField(editorWindowDirectory, typeof
+            (DefaultAsset), true) as DefaultAsset;
+        if (AssetManagerEditor.AssetManagerConfig.AssetBundleDirectory != editorWindowDirectory)
+        {
+            if (editorWindowDirectory == null)
+            {
+                AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Clear();
+            }
+            AssetManagerEditor.AssetManagerConfig.AssetBundleDirectory = editorWindowDirectory;
+            AssetManagerEditor.AssetManagerConfig.GetCurrentDirectoryAllAssets();
+        }
+        if (AssetManagerEditor.AssetManagerConfig.CurrentAllAssets != null && AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Count > 0)
+        {
+            for (int i = 0; i < AssetManagerEditor.AssetManagerConfig.CurrentAllAssets.Count; i++)
+            {
+                AssetManagerEditor.AssetManagerConfig.CurrentSelectedAssets[i] = EditorGUILayout.ToggleLeft(AssetManagerEditor.AssetManagerConfig.CurrentAllAssets[i], AssetManagerEditor.AssetManagerConfig.CurrentSelectedAssets[i]);
+            }
+        }
 
         GUILayout.Space(20);
         if (GUILayout.Button("打包AssetBundle"))
         {
-            //当写了BuildAssetBundleFromDirectory，打包指定文件夹下的所有资源为AssetBundle时
-            AssetManagerEditor.BuildAssetBundleFromDirectory();
-
-            /*
-            string directoryPath = AssetDatabase.GetAssetPath((AssetManagerEditor.AssetBundleDirectory));
-            AssetManagerEditor.FindAllAssetNameFromDirectory(directoryPath);
-            */
+            AssetManagerEditor.BuildAssetBundleFromDirectedGraph();
             Debug.Log("EditorButton按下");
+        }
+
+        GUILayout.Space(20);
+        if (GUILayout.Button("保存Config"))
+        {
+            AssetManagerEditor.SaveConfigToJson();
+        }
+
+        GUILayout.Space(20);
+        if (GUILayout.Button("读取Config文件"))
+        {
+            AssetManagerEditor.LoadCongifFromJson();
         }
     }
 }
-
